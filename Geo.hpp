@@ -105,14 +105,12 @@ struct Matrix2x2
     constexpr friend PointVector operator*(const Matrix2x2 &_this, const PointVector &vec)
     {
         return PointVector(
-
             _this[0][0] * vec[0] + _this[1][0] * vec[1],
             _this[0][1] * vec[0] + _this[1][1] * vec[1]
         );
     }
 };
-// 이대로 어떤 설명보다 내 느낌이 정말
-// 숨길 수 없이 달아 이끌림 오직 너를 위해 Psychic Lover!
+
 Matrix2x2 rotateMatrix(double angle)
 {
     double cosAngle = cos(angle);
@@ -127,21 +125,49 @@ private:
     PointVector m_max;
 
     static constexpr double __max1(double a, double b)
-    {return (a < b) ? a : b;}
+    { return (a < b) ? b : a; }
 
     static constexpr double __min1(double a, double b)
-    {return (a > b) ? a : b;}
-private:
+    { return (a > b) ? b : a; }
+
 public:
     constexpr Rect(PointVector a, PointVector b)
-        : m_min(__min1(a[0], b[0]), __min1(a[1], b[1])), m_max(__max1(a[0], b[0]), __max1(a[1], b[1])){}
-    
+        : m_min(__min1(a[0], b[0]), __min1(a[1], b[1])), m_max(__max1(a[0], b[0]), __max1(a[1], b[1])) {}
+
     constexpr Rect(const Rect &other)
-        : m_min(other.m_min), m_max(other.m_max){}
-    
-    constexpr bool contains(const Rect &subRect)
+        : m_min(other.m_min), m_max(other.m_max) {}
+
+    constexpr bool contains(const PointVector &pos) const
     {
-        return 
+        return (pos[0] >= m_min[0] && pos[0] <= m_max[0]) &&
+            (pos[1] >= m_min[1] && pos[1] <= m_max[1]);
+    }
+
+    constexpr bool contains(const PointVector &pos, double radius) const
+    {
+        return (pos[0] - radius >= m_min[0] && pos[0] + radius <= m_max[0]) &&
+            (pos[1] - radius >= m_min[1] && pos[1] + radius <= m_max[1]);
+    }
+
+    constexpr bool intersects(const Rect &other) const
+    {return !discrete(other);}
+
+    constexpr bool discrete(const Rect &other) const
+    {
+        return m_max[0] < other.m_min[0] || m_min[0] > other.m_max[0] ||
+            m_max[1] < other.m_min[1] || m_min[1] > other.m_max[1];
+    }
+
+    constexpr PointVector center() const { return (m_min + m_max) * 0.5; }
+    constexpr PointVector size() const { return m_max - m_min; }
+    constexpr PointVector minPoint() const { return m_min; }
+    constexpr PointVector maxPoint() const { return m_max; }
+    constexpr PointVector vertex(const bool(&isMax)[2]) const 
+    {
+        return PointVector{
+            isMax[0] ? m_max[0] : m_min[0],
+            isMax[1] ? m_max[1] : m_min[1]
+        };
     }
 };
 
