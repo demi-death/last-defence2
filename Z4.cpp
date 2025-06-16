@@ -40,20 +40,69 @@ struct BulletPreset
     double speed; // Speed of the bullet in units per second
     double range; // Maximum range of the bullet
 };
-
+typedef std::shared_ptr<Entity> EntityPtr;
+typedef std::list<EntityPtr> EntityList;
+typedef typename EntityList::iterator EntityIterator;
 struct Bullet
 {
-    std::shared_ptr<Entity> owner; // Owner of the bullet, can be a player or an NPC
+    EntityPtr owner; // Owner of the bullet, can be a player or an NPC
     const PointVector initialPosition;
     PointVector position;
     PointVector velocity; // Velocity of the bullet in x and y directions
+    double radius;
     double lifeTime;
-    Bullet(std::shared_ptr<Entity> _owner, const BulletPreset &_bulletPreset, const PointVector &_initialPosition, double _angle)
-        : owner(owner), initialPosition{_initialPosition}, position(_initialPosition), velocity(velocity), lifeTime(lifeTime) {}
-    virtual void onHit(Entity &entity)
+public:
+    struct HitInfo
     {
-
+        EntityIterator target;
+        double closest // [0.0, 1.0]
     }
+    Bullet(EntityPtr _owner, const BulletPreset &_bulletPreset, const PointVector &_initialPosition, double _angle)
+        : owner(_owner), initialPosition{_initialPosition}, position(_initialPosition), velocity(), lifeTime(lifeTime) {}
+    virtual void onHit(EntityList &entityList, const std::list<typename EntityList::iterator> &hitList) = 0;
+    static double distancePointToSegment(const PointVector& p, const PointVector& a, const PointVector& b, double& tOut)
+    {
+        PointVector ab = b - a;
+        PointVector ap = p - a;
+        double abLenSq = ab * ab;
+        if (abLenSq == 0.0) {
+            tOut = 0.0;
+            return (p - a).length();
+        }
+        double t = (ap * ab) / abLenSq;
+        if(t < 0.0)
+            t = 0.0;
+        else if(t > 1.0)
+            t = 1.0;
+        tOut = t;
+        PointVector closest = a + ab * t;
+        return (p - closest).length();
+    }
+    std::list<HitInfo> getHitEntities(const EntityList &entityList, double duration)
+    {
+        PointVector start = position;
+        PointVector end = start + velocity * duration;
+
+        Rect boundingBox = computeBoundingRectWithRadius(start, end, radius);
+
+        std::list<EntityIterator> candidates;
+        quadTree.query(boundingBox, candidates); // 후보만 추출 (빠름)
+
+        std::list<HitInfo> hits;
+        for (EntityIterator entity : candidates) {
+            double tClosest;
+            double dist = distancePointToSegment((**entity).position, start, end, tClosest);
+
+            if (dist <= radius + (**entity).radius) {
+                hits.push_back({ entity, tClosest });
+            }
+        }
+        hits.sort([](auto& a, auto& b) {return a.tClosest < b.tClosest;});
+        return std::move(hits);
+    }
+public:
+    virtual ~Bullet()
+    {}
 };
 
 struct WeaponPreset
@@ -77,6 +126,7 @@ struct Entity
 {
     Team *team; // Pointer to the team this entity belongs to, if any
     const char *name; // Name of the entity
+    double radius;
     PointVector position; // Position of the entity in 2D space
     double angle;
     int health; // Health of the entity
@@ -133,7 +183,8 @@ int main(void)
     Matrix2x2 rmatrix = rotateMatrix(3.1415926535897932 / 4.0); // Example rotation matrix for 45 degrees
     PointVector vec(2.0, 3.0);
     PointVector vec1 = rmatrix * vec; // Rotate the vector using the rotation matrix
-    debugPrintln("Rotated vector: (%lf, %lf)", vec1.x, vec1.y);
+    
+    debugPrintln("Rotated vector: (%lf, %lf)", vec1[0], vec1[1]);
     do
     {
         double currentTime = timer();
