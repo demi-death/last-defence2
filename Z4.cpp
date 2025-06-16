@@ -51,12 +51,18 @@ struct Bullet
     PointVector velocity; // Velocity of the bullet in x and y directions
     double radius;
     double lifeTime;
+
+    static constexpr double __min1(double a, double b)
+    {return (a < b) ? a : b;}
+
+    static constexpr double __max1(double a, double b)
+    {return (a > b) ? a : b;}
 public:
     struct HitInfo
     {
         EntityIterator target;
-        double closest // [0.0, 1.0]
-    }
+        double closest; // [0.0, 1.0]
+    };
     Bullet(EntityPtr _owner, const BulletPreset &_bulletPreset, const PointVector &_initialPosition, double _angle)
         : owner(_owner), initialPosition{_initialPosition}, position(_initialPosition), velocity(), lifeTime(lifeTime) {}
     virtual void onHit(EntityList &entityList, const std::list<typename EntityList::iterator> &hitList) = 0;
@@ -77,6 +83,13 @@ public:
         tOut = t;
         PointVector closest = a + ab * t;
         return (p - closest).length();
+    }
+    static constexpr Rect computeBoundingRectWithRadius(const PointVector &start, const PointVector &end, double radius)
+    {
+        return {
+            { __min1(start[0], end[0]) - radius, __min1(start[1], end[1]) - radius }, 
+            { __max1(start[0], end[0]) + radius, __max1(start[1], end[1]) + radius }
+        };
     }
     std::list<HitInfo> getHitEntities(const EntityList &entityList, double duration)
     {
