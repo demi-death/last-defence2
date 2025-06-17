@@ -118,6 +118,39 @@ Matrix2x2 rotateMatrix(double angle)
     return Matrix2x2({cosAngle, sinAngle}, {-sinAngle, cosAngle});
 }
 
+class RectLooseness
+{
+private:
+    bool m_boolAry[2][2] = {{false, false}, {false, false}};
+public:
+    constexpr RectLooseness(){}
+    constexpr RectLooseness(const bool (&m_boolAry)[2][2])
+        : m_boolAry{{m_boolAry[0][0], m_boolAry[0][1]}, {m_boolAry[1][0], m_boolAry[1][1]}}{}
+    constexpr RectLooseness(const RectLooseness &other)
+        : RectLooseness(other.m_boolAry){}
+    
+    constexpr bool looseMin(size_t axis) const
+    {return m_boolAry[axis][0];}
+    constexpr bool looseMax(size_t axis) const
+    {return m_boolAry[axis][1];}
+
+    friend constexpr RectLooseness operator|(const RectLooseness &_this, const RectLooseness &other)
+    {
+        return RectLooseness({
+            {_this.looseMin(0) || other.looseMin(0), _this.looseMax(0) || other.looseMax(0)},
+            {_this.looseMin(1) || other.looseMin(1), _this.looseMax(1) || other.looseMax(1)}
+        });
+    }
+
+    friend constexpr RectLooseness operator&(const RectLooseness &_this, const RectLooseness &other)
+    {
+        return RectLooseness({
+            {_this.looseMin(0) && other.looseMin(0), _this.looseMax(0) && other.looseMax(0)},
+            {_this.looseMin(1) && other.looseMin(1), _this.looseMax(1) && other.looseMax(1)}
+        });
+    }
+};
+
 class Rect
 {
 private:
@@ -137,16 +170,14 @@ public:
     constexpr Rect(const Rect &other)
         : m_min(other.m_min), m_max(other.m_max) {}
 
-    constexpr bool contains(const PointVector &pos) const
+    constexpr bool contains(const PointVector &pos, const RectLooseness &looseness = {}) const
     {
-        return (pos[0] >= m_min[0] && pos[0] <= m_max[0]) &&
-            (pos[1] >= m_min[1] && pos[1] <= m_max[1]);
-    }
-
-    constexpr bool contains(const PointVector &pos, double radius) const
-    {
-        return (pos[0] - radius >= m_min[0] && pos[0] + radius <= m_max[0]) &&
-            (pos[1] - radius >= m_min[1] && pos[1] + radius <= m_max[1]);
+        return 
+            (looseness.looseMin(0) || m_min[0] <= pos[0]) &&
+            (looseness.looseMax(0) || pos[0] < m_max[0]) &&
+            (looseness.looseMin(1) || m_min[1] <= pos[1]) &&
+            (looseness.looseMax(1) || pos[1] < m_max[1]);
+            
     }
 
     constexpr bool intersects(const Rect &other) const
