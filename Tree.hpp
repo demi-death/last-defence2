@@ -2,7 +2,7 @@
 #define _TREE_HPP_
 
 #include "Geo.hpp"
-#include <memory>
+#include <stdio.h>
 #include <list>
 
 // Is it 2D version of segment tree?
@@ -16,7 +16,7 @@ namespace _qt
     template<typename T>
     struct _QTData
     {
-        PointVector position;
+        PointVector pos;
         T data;
     };
     struct _NodeBase
@@ -29,8 +29,9 @@ namespace _qt
         constexpr bool isLeaf() const { return m_isLeaf; }
         constexpr const Rect &boundingBox() const { return m_boundingBox; }
         constexpr size_t count() const{return m_count;}
-        constexpr bool contains(const PointVector &pos, const RectLooseness &looseness) const
-        {return m_boundingBox.contains(pos, looseness);}
+        constexpr bool contains(const PointVector &pos) const
+        {return m_boundingBox.contains(pos);}
+        constexpr bool intersects(const Rect &rect) const{return m_boundingBox.intersects(rect);}
     };
     template<typename T>
     struct _Node : _NodeBase
@@ -40,8 +41,8 @@ namespace _qt
         std::list<_QTData<T>> m_data;
         _Node(const Rect &boundingBox, _Node *parent)
             : _NodeBase(boundingBox), m_parent(parent), m_data(){}
-        constexpr NodeType *parent() const { return m_parent; }
-        constexpr _Node *(const &children())[4] const { return m_children; }
+        constexpr _Node *parent() const { return m_parent; }
+        constexpr _Node *const(&children() const)[4]{ return m_children; }
     private:
         void _clearSubtree(void)
         {
@@ -54,9 +55,32 @@ namespace _qt
             }
         }
     public:
+        void divideNode(size_t countLimit, size_t depthLimit)
+        {
+            if(depthLimit && (isLeaf() || m_count > countLimit))
+            {
+                PointVector center = m_boundingBox.center();
+                for(size_t i = 0; i < 4; ++i)
+                    m_children[i] = new _Node<T>(Rect(m_boundingBox.vertex(_vertexAttrs[i]), center, m_boundingBox.looseness() & _mask[i]), this);
+            }
+            else return;
+            while(!m_data.empty())
+            {
+                auto bg = m_data.begin();
+                for(_Node<T> *child : children()) if(child->contains(bg->pos))
+                {
+                    child->m_data.splice(child->m_data.end(), m_data, bg);
+                    break;
+                }
+            }
+            for(_Node<T> *child : children())
+                divideNode(child, countLimit);
+            m_isLeaf = false; // Mark this as an internal node now
+            m_data.clear();
+        }
         size_t clearSubtree(void)
         {
-            _clearSubtree(this);
+            _clearSubtree();
             m_isLeaf = true; // Mark this as a leaf node
             for(_Node *&child : m_children)
                 child = nullptr; // Set to nullptr to avoid dangling pointers
@@ -64,6 +88,45 @@ namespace _qt
             m_count = 0;
             return countTmp;
         }
+    };
+
+
+    void _printDebug(FILE *fp, _Node<int> *node)
+    {
+        fprintf(fp, "==================================\n");
+        fprintf(fp, "node: %p\n", node);
+        if(node)
+        {
+            fprintf(fp, "isLeaf: %d\n", node->isLeaf());
+            fprintf(fp, "boundingBox: (%lf, %lf) - (%lf, %lf)\n", 
+                    node->boundingBox().minPoint()[0], node->boundingBox().minPoint()[1],
+                    node->boundingBox().maxPoint()[0], node->boundingBox().maxPoint()[1]);
+            fprintf(fp, "count: %zu\n", node->count());
+            fprintf(fp, "parent: %p\n", node->parent());
+            if(node->isLeaf())
+            {
+                fprintf(fp, "data:\n");
+                for(const auto &data : node->m_data)
+                    fprintf(fp, "   (%lf, %lf): %d\n", data.pos[0], data.pos[1], data.data);
+            }
+            else
+            {
+                fprintf(fp, "children:\n");
+                for(size_t i = 0; i < 4; ++i)
+                {
+                    fprintf(fp, "   child[%zu]: %p\n", i, node->children()[i]);
+                }
+            }
+        }
+        
+        fprintf(fp, "==================================\n");
+    }
+
+    constexpr bool _vertexAttrs[4][2] = {
+        {true, true},
+        {true, false},
+        {false, false},
+        {false, true}
     };
 
     constexpr RectLooseness _mask[4] = {
@@ -77,68 +140,49 @@ namespace _qt
             {true, false}})
     };
 
-    constexpr RectLooseness _completelyLoose = {{true, true}, {true, true}};
+    constexpr RectLooseness _completelyLoose({{true, true}, {true, true}});
 
     template<typename T>
-    void _divideNode(_Node<T> *node)
+    void _divideNode(_Node<T> *node, size_t countLimit)
     {
-        constexpr bool vertexAttrs[4][2] = {
-            {true, true},
-            {true, false},
-            {false, false},
-            {false, true}
-        };
-        PointVector center = node->boundingBox().center();
-        for(size_t i = 0; i < 4; ++i)
-            node->m_children[i] = new NodeType(Rect(node->boundingBox().vertex(vertexAttrs[i]), center), node);
+        if(node->isLeaf() || node->m_count > countLimit)
+        {
+            PointVector center = node->boundingBox().center();
+            for(size_t i = 0; i < 4; ++i)
+                node->m_children[i] = new _Node<T>(Rect(node->boundingBox().vertex(_vertexAttrs[i]), center, node->boundingBox().looseness() & _mask[i]), node);
+        }
+        else return;
         while(!node->m_data.empty())
         {
             auto bg = node->m_data.begin();
-            const PointVector &pos = bg->pos;
-            size_t idx = 0;
-            if(pos[0] < center[0])
+            for(_Node<T> *child : node->children()) if(child->contains(bg->pos))
             {
-                if(pos[1] < center[1])
-                    idx = 2;
-                else
-                    idx = 1;
+                child->m_data.splice(child->m_data.end(), node->m_data, bg);
+                break;
             }
-            else
-            {
-                if(pos[1] < center[1])
-                    idx = 3;
-                else
-                    idx = 0;
-            }
-            _Node<T> *child = node->children()[idx];
-            child->m_data.splice(child->m_data.end(), node->m_data, bg);
-            ++(child->m_count);
         }
+        for(_Node<T> *child : node->children())
+            _divideNode(child, countLimit);
         node->m_isLeaf = false; // Mark this as an internal node now
         node->m_data.clear();
     }
 
     template<typename T>
-    _Node<T> *_mergeNode(_Node<T> *node, size_t countLimit, size_t _deleted = 1, size_t *rewindCount = nullptr)
+    size_t _mergeNode(_Node<T> *node, size_t countLimit)
     {
-        _Node<T> *ret = node;
         size_t rewCount = 0;
-        for(node = node->m_parent; node && (node->m_count - _deleted) <= countLimit; node = node->m_parent)
+        for(node = node->m_parent; node && node->m_count <= countLimit; node = node->m_parent)
         {
-            node->m_count -= _deleted; // Decrement the count of the parent node
-            for(_Node<T> *&child : node->children())
+            for(_Node<T> *&child : node->m_children)
             {
                 node->m_data.splice(node->m_data.end(), child->m_data); // Move data from child to parent
                 delete child; // Delete all children
                 child = nullptr; // Set to nullptr to avoid dangling pointers
             }
-            ret = node;
+            node->m_isLeaf = true;
             ++rewCount;
         }
-        ret->m_isLeaf = true; // Mark this as a leaf now
-        if(rewindCount)
-            *rewindCount = rewCount;
-        return ret;
+        return rewCount;
     }
 
     template<typename T>
@@ -156,18 +200,17 @@ namespace _qt
     }
 
     template<typename T>
-    _Node<T> *_queryLeafByPoint(_Node<T> *node, PointVector pos, const RectLooseness &looseMode = {})
+    _Node<T> *_queryLeafByPoint(_Node<T> *node, PointVector pos)
     {
-        if(!node || !node->contains(pos, looseMode))
+        if(!node || !node->contains(pos))
             return nullptr; // No intersection, return early
         while(!node->isLeaf())
         {
             bool found = false; // For security.
-            for(size_t i = 0; i < 4; ++i) if(node->children()[i].contains(pos, looseMode & mask[i]))
+            for(_Node<T> *child : node->children()) if(child->contains(pos))
             {
-                node = node->children()[i]; // Move to the child node
+                node = child; // Move to the child node
                 found = true;
-                looseMode = looseMode & mask[i];
                 break; // Found the child, no need to check others
             }
             if(!found)
@@ -175,93 +218,129 @@ namespace _qt
         }
         return node;
     }
+
     template<typename T>
-    _Node<T> *_queryLeafByRect(_Node<T> *node, PointVector pos, const RectLooseness &looseMode = {})
+    void _reinsertNode(_Node<T> *node, typename std::list<_QTData<T>>::iterator itr, size_t countLimit)
     {
-        if(!node || !node->contains(pos, looseMode))
-            return nullptr;
-        return node;
-    }
-    template<typename T, typename LeafQuery>
-    _Node<T> *_leaf(_Node<T> *node, LeafQuery &&lq, size_t countLimit)
-    {
-        size_t before = node->m_count;
-        lq(node->m_data);
-        size_t after = node->m_count;
-        if(after < before)
-            _applyDelete(node, countLimit, before - after);
-        else if(after > before)
-            _applyInsert(node, countLimit, after - before);
-        
-    }
-    template<typename T, typename LeafQuery>
-    size_t _dfs(_Node<T> *node, LeafQuery &&lq, size_t countLimit)
-    {
-        if(node.isLeaf())
-            _leaf(node, std::forward<LeafQuery>(lq), countLimit);
-        else for(_Node<T> *child : node->children())
+        _Node<T> *existing = node;
+        PointVector pos = itr->pos;
+        size_t i = 0;
+        --(node->m_count);
+        for(node = node->parent(); node; node = node->parent())
         {
-            size_t rewind = _dfs(child, std::forward<LeafQuery>(lq), countLimit);
-            if(rewind)
-                return rewind - 1;
+            if(node->contains(pos))
+            {
+                while(!node->isLeaf())
+                {
+                    bool found = false;
+                    for(_Node<T> *child : node->children()) if(child->contains(pos))
+                    {
+                        node = child;
+                        ++(node->m_count);
+                        found = true;
+                        break;
+                    }
+                    if(!found)
+                    {
+                        existing->m_data.erase(itr);
+                        return;
+                    }
+                }
+                node->m_data.splice(node->m_data.end(), existing->m_data, itr);
+                if(node->m_count > countLimit)
+                    _divideNode(node);
+                return;
+            }
+            --(node->m_count);
         }
-        return 0;
+        existing->m_data.erase(itr);
     }
+    template<typename T, typename LeafQuery>
+    struct _QueryLeafByRect
+    {
+        LeafQuery lq;
+        size_t countLimit;
+        const Rect &rect;
+        size_t _leaf(_Node<T> *node)
+        {
+            printf("ENTERED LEAF DURING QUERY\n");
+            _printDebug(stdout, node);
+            size_t before = node->m_count;
+            lq(node->m_data);
+            size_t after = (node->m_count = node->m_data.size());
+            if(after < before)
+                _applyDelete(node, countLimit, before - after);
+            else if(after > before)
+                _applyInsert(node, after - before);
+            auto i = node->m_data.begin();
+            while(i != node->m_data.end())
+            {
+                auto tail = i;
+                ++i;
+                if(!node->contains(tail->pos))
+                    _reinsertNode(node, tail, countLimit);
+            }
+            return _mergeNode(node, countLimit);
+        }
+        size_t operator()(_Node<T> *node)
+        {
+            if(node && node->intersects(rect))
+            {
+                if(node->isLeaf())
+                    return _leaf(node);
+                for(size_t i = 0; i < 4; ++i)
+                {
+                    size_t rewCount = (*this)(node->children()[i]);
+                    if(rewCount)
+                        return rewCount - 1;
+                }
+            }
+            return 0;
+        }
+    };
 }
 
 template<typename T>
 class QuadTree
 {
 public:
-    typedef _qt::_QTData LocatedData;
-protected:
-    typedef _qt::_Node NodeType;
+    typedef _qt::_QTData<T> LocatedData;
+private:
+    typedef _qt::_Node<T> NodeType;
     NodeType m_root;
     size_t m_countLimit;
-
-    constexpr NodeType *_rootNodePtr(void) const
-    {return &m_root;}
+public:
     QuadTree(const Rect &boundingBox, size_t countLimit)
-        : m_root(boundingBox, nullptr, true), m_countLimit(countLimit)
+        : m_root(boundingBox, nullptr), m_countLimit(countLimit)
     {}
-public:
-    void clear(void)
-    {_rootNodePtr()->clearSubtree();}
-public:
-    QuadTree(const Rect &boundingBox, size_t countLimit, InterpretCoordinateFunc icf)
-        : _QuadTreeBase<T>(boundingBox, countLimit), m_icf(icf){}
-
-    template<typename LeafNodeQueryFunc>
-    void queryRect(const Rect &searchArea, LeafNodeQueryFunc &&func) const
-    {_queryRect(this->_rootNodePtr(), searchArea, std::forward<LeafNodeQueryFunc>(func));}
+    template<typename LeafQuery>
+    void queryRect(const Rect &searchArea, LeafQuery &&func)
+    {
+        _qt::_QueryLeafByRect<T, std::add_rvalue_reference_t<LeafQuery> > _temp = {std::forward<LeafQuery>(func), m_countLimit, searchArea};
+        _temp(&m_root);
+    }
 
     void insert(const PointVector &pos, const T &data)
     {
-        NodeType *node = _queryLeafByPoint(this->_rootNodePtr(), pos, _qt::_completelyLoose);
-        node->m_data.push_back(data); // Insert data into the leaf node
-        ++(node->m_count);
+        NodeType *node = _queryLeafByPoint(&m_root, pos);
+        node->m_data.push_back(LocatedData{pos, data}); // Insert data into the leaf node
+        if(++(node->m_count) > m_countLimit)
+            _qt::_divideNode(node);
         _qt::_applyInsert(node); // Apply insert logic
     }
     void insert(const PointVector &pos, T &&data)
     {
-        NodeType *node = _queryLeafByPoint(this->_rootNodePtr(), pos, _qt::_completelyLoose);
-        node->m_data.push_back(std::move(data)); // Insert data into the leaf node
-        ++(node->m_count);
+        NodeType *node = _queryLeafByPoint(&m_root, pos);
+        node->m_data.push_back(LocatedData{pos, std::move(data)}); // Insert data into the leaf node
+        if(++(node->m_count) > m_countLimit)
+            _qt::_divideNode(node);
         _qt::_applyInsert(node); // Apply insert logic
     }
-
-    template<typename _LeafQuery>
-    void 
-
-    template<typename _LeafQuery>
-    void dfs(_LeafQuery &&lq)
-    {
-
-    }
-protected:
+    void clear(void)
+    {m_root.clearSubtree();}
     ~QuadTree()
     {
-        _clearAll(_rootNodePtr());
+        clear();
     }
 };
 #endif // _TREE_HPP_

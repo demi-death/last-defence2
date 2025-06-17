@@ -153,9 +153,12 @@ public:
 
 class Rect
 {
+public:
+    typedef RectLooseness Looseness;
 private:
     PointVector m_min;
     PointVector m_max;
+    Looseness m_looseness;
 
     static constexpr double __max1(double a, double b)
     { return (a < b) ? b : a; }
@@ -164,30 +167,36 @@ private:
     { return (a > b) ? b : a; }
 
 public:
-    constexpr Rect(PointVector a, PointVector b)
-        : m_min(__min1(a[0], b[0]), __min1(a[1], b[1])), m_max(__max1(a[0], b[0]), __max1(a[1], b[1])) {}
+    constexpr Rect(const PointVector &a, const PointVector &b, const Looseness &looseness = {})
+        : m_min(__min1(a[0], b[0]), __min1(a[1], b[1])), m_max(__max1(a[0], b[0]), __max1(a[1], b[1])), m_looseness(looseness) {}
 
     constexpr Rect(const Rect &other)
-        : m_min(other.m_min), m_max(other.m_max) {}
+        : m_min(other.m_min), m_max(other.m_max), m_looseness(other.m_looseness) {}
 
-    constexpr bool contains(const PointVector &pos, const RectLooseness &looseness = {}) const
+    constexpr bool contains(const PointVector &pos) const
     {
         return 
-            (looseness.looseMin(0) || m_min[0] <= pos[0]) &&
-            (looseness.looseMax(0) || pos[0] < m_max[0]) &&
-            (looseness.looseMin(1) || m_min[1] <= pos[1]) &&
-            (looseness.looseMax(1) || pos[1] < m_max[1]);
-            
+            (m_looseness.looseMin(0) || m_min[0] <= pos[0]) &&
+            (m_looseness.looseMax(0) || pos[0] <= m_max[0]) &&
+            (m_looseness.looseMin(1) || m_min[1] <= pos[1]) &&
+            (m_looseness.looseMax(1) || pos[1] <= m_max[1]);
     }
 
     constexpr bool intersects(const Rect &other) const
-    {return !discrete(other);}
+    {
+        return
+            (other.m_looseness.looseMin(0) || m_looseness.looseMax(0) || other.m_min[0] <= m_max[0]) &&
+            (m_looseness.looseMin(0) || other.m_looseness.looseMax(0) || m_min[0] <= other.m_max[0])
+            &&
+            (other.m_looseness.looseMin(1) || m_looseness.looseMax(1) || other.m_min[1] <= m_max[1]) &&
+            (m_looseness.looseMin(1) || other.m_looseness.looseMax(1) || m_min[1] <= other.m_max[1]);
+    }
+
+    constexpr Looseness looseness(void) const
+    {return m_looseness;}
 
     constexpr bool discrete(const Rect &other) const
-    {
-        return m_max[0] < other.m_min[0] || m_min[0] > other.m_max[0] ||
-            m_max[1] < other.m_min[1] || m_min[1] > other.m_max[1];
-    }
+    {return !intersects(other);}
 
     constexpr PointVector center() const { return (m_min + m_max) * 0.5; }
     constexpr PointVector size() const { return m_max - m_min; }
