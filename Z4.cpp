@@ -2,7 +2,7 @@
 #include <stdarg.h>
 #include "Geo.hpp"
 #include "SteadyTimer.hpp"
-#include <list>
+#include "Tree.hpp"
 #include <memory>
 SteadyTimer timer;
 double startTime;
@@ -40,9 +40,8 @@ struct BulletPreset
     double speed; // Speed of the bullet in units per second
     double range; // Maximum range of the bullet
 };
-typedef std::shared_ptr<Entity> EntityPtr;
-typedef std::list<EntityPtr> EntityList;
-typedef typename EntityList::iterator EntityIterator;
+typedef QuadTree<std::shared_ptr<Entity>> EntityField;
+typedef EntityField::DataList::
 struct Bullet
 {
     EntityPtr owner; // Owner of the bullet, can be a player or an NPC
@@ -60,12 +59,12 @@ struct Bullet
 public:
     struct HitInfo
     {
-        EntityIterator target;
+        EntityField::DataList::iterator target;
         double closest; // [0.0, 1.0]
     };
     Bullet(EntityPtr _owner, const BulletPreset &_bulletPreset, const PointVector &_initialPosition, double _angle)
         : owner(_owner), initialPosition{_initialPosition}, position(_initialPosition), velocity(), lifeTime(lifeTime) {}
-    virtual void onHit(EntityList &entityList, const std::list<typename EntityList::iterator> &hitList) = 0;
+    virtual void onHit(EntityField &entityList, const EntityList &hitList) = 0;
     static double distancePointToSegment(const PointVector& p, const PointVector& a, const PointVector& b, double& tOut)
     {
         PointVector ab = b - a;
@@ -91,7 +90,7 @@ public:
             { __max1(start[0], end[0]) + radius, __max1(start[1], end[1]) + radius }
         };
     }
-    std::list<HitInfo> getHitEntities(const EntityList &entityList, double duration)
+    std::list<HitInfo> getHitEntities(EntityField &entityField, double duration)
     {
         PointVector start = position;
         PointVector end = start + velocity * duration;
@@ -99,7 +98,7 @@ public:
         Rect boundingBox = computeBoundingRectWithRadius(start, end, radius);
 
         std::list<EntityIterator> candidates;
-        quadTree.query(boundingBox, candidates); // 후보만 추출 (빠름)
+        entityList.queryRect(boundingBox, candidates); // 후보만 추출 (빠름)
 
         std::list<HitInfo> hits;
         for (EntityIterator entity : candidates) {

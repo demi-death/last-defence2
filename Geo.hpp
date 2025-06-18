@@ -149,7 +149,20 @@ public:
             {_this.looseMin(1) && other.looseMin(1), _this.looseMax(1) && other.looseMax(1)}
         });
     }
+
+    friend constexpr bool operator==(const RectLooseness &_this, const RectLooseness &other)
+    {
+        return (_this.looseMin(0) == other.looseMin(0)) && (_this.looseMax(0) == other.looseMax(0)) &&
+            (_this.looseMin(1) == other.looseMin(1)) && (_this.looseMax(1) == other.looseMax(1));
+    }
+    
+    friend constexpr bool operator!=(const RectLooseness &_this, const RectLooseness &other)
+    {
+        return !(_this == other);
+    }
 };
+static constexpr RectLooseness completelyLoose({{true, true}, {true, true}});
+static constexpr RectLooseness completelyStrict;
 
 class Rect
 {

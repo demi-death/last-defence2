@@ -33,6 +33,22 @@ namespace _qt
         {return m_boundingBox.contains(pos);}
         constexpr bool intersects(const Rect &rect) const{return m_boundingBox.intersects(rect);}
     };
+    constexpr bool _vertexAttrs[4][2] = {
+        {true, true},
+        {false, true},
+        {false, false},
+        {true, false}
+    };
+    constexpr RectLooseness _mask[4] = {
+        RectLooseness({{false, true},
+            {false, true}}),
+        RectLooseness({{true, false},
+            {false, true}}),
+        RectLooseness({{true, false},
+            {true, false}}),
+        RectLooseness({{false, true},
+            {true, false}})
+    };
     template<typename T>
     struct _Node : _NodeBase
     {
@@ -55,13 +71,17 @@ namespace _qt
             }
         }
     public:
-        void divideNode(size_t countLimit, size_t depthLimit)
+        void divideNode(void)
         {
-            if(depthLimit && (isLeaf() || m_count > countLimit))
+            if(isLeaf())
             {
                 PointVector center = m_boundingBox.center();
                 for(size_t i = 0; i < 4; ++i)
-                    m_children[i] = new _Node<T>(Rect(m_boundingBox.vertex(_vertexAttrs[i]), center, m_boundingBox.looseness() & _mask[i]), this);
+                {
+                    Rect r = Rect(m_boundingBox.vertex(_vertexAttrs[i]), center, m_boundingBox.looseness() & _mask[i]);
+                    m_children[i] = new _Node<T>(r, this);
+                    //printf("(%lf, %lf) - (%lf, %lf), {{%d, %d}, {%d, %d}}\n", r.minPoint()[0], r.minPoint()[1], r.maxPoint()[0], r.maxPoint()[1], r.looseness().looseMin(0), r.looseness().looseMax(0), r.looseness().looseMin(1), r.looseness().looseMax(1));
+                }
             }
             else return;
             while(!m_data.empty())
@@ -73,8 +93,6 @@ namespace _qt
                     break;
                 }
             }
-            for(_Node<T> *child : children())
-                divideNode(child, countLimit);
             m_isLeaf = false; // Mark this as an internal node now
             m_data.clear();
         }
@@ -90,100 +108,7 @@ namespace _qt
         }
     };
 
-
-    void _printDebug(FILE *fp, _Node<int> *node)
-    {
-        fprintf(fp, "==================================\n");
-        fprintf(fp, "node: %p\n", node);
-        if(node)
-        {
-            fprintf(fp, "isLeaf: %d\n", node->isLeaf());
-            fprintf(fp, "boundingBox: (%lf, %lf) - (%lf, %lf)\n", 
-                    node->boundingBox().minPoint()[0], node->boundingBox().minPoint()[1],
-                    node->boundingBox().maxPoint()[0], node->boundingBox().maxPoint()[1]);
-            fprintf(fp, "count: %zu\n", node->count());
-            fprintf(fp, "parent: %p\n", node->parent());
-            if(node->isLeaf())
-            {
-                fprintf(fp, "data:\n");
-                for(const auto &data : node->m_data)
-                    fprintf(fp, "   (%lf, %lf): %d\n", data.pos[0], data.pos[1], data.data);
-            }
-            else
-            {
-                fprintf(fp, "children:\n");
-                for(size_t i = 0; i < 4; ++i)
-                {
-                    fprintf(fp, "   child[%zu]: %p\n", i, node->children()[i]);
-                }
-            }
-        }
-        
-        fprintf(fp, "==================================\n");
-    }
-
-    constexpr bool _vertexAttrs[4][2] = {
-        {true, true},
-        {true, false},
-        {false, false},
-        {false, true}
-    };
-
-    constexpr RectLooseness _mask[4] = {
-        RectLooseness({{false, true},
-            {false, true}}),
-        RectLooseness({{true, false},
-            {false, true}}),
-        RectLooseness({{true, false},
-            {true, false}}),
-        RectLooseness({{false, true},
-            {true, false}})
-    };
-
     constexpr RectLooseness _completelyLoose({{true, true}, {true, true}});
-
-    template<typename T>
-    void _divideNode(_Node<T> *node, size_t countLimit)
-    {
-        if(node->isLeaf() || node->m_count > countLimit)
-        {
-            PointVector center = node->boundingBox().center();
-            for(size_t i = 0; i < 4; ++i)
-                node->m_children[i] = new _Node<T>(Rect(node->boundingBox().vertex(_vertexAttrs[i]), center, node->boundingBox().looseness() & _mask[i]), node);
-        }
-        else return;
-        while(!node->m_data.empty())
-        {
-            auto bg = node->m_data.begin();
-            for(_Node<T> *child : node->children()) if(child->contains(bg->pos))
-            {
-                child->m_data.splice(child->m_data.end(), node->m_data, bg);
-                break;
-            }
-        }
-        for(_Node<T> *child : node->children())
-            _divideNode(child, countLimit);
-        node->m_isLeaf = false; // Mark this as an internal node now
-        node->m_data.clear();
-    }
-
-    template<typename T>
-    size_t _mergeNode(_Node<T> *node, size_t countLimit)
-    {
-        size_t rewCount = 0;
-        for(node = node->m_parent; node && node->m_count <= countLimit; node = node->m_parent)
-        {
-            for(_Node<T> *&child : node->m_children)
-            {
-                node->m_data.splice(node->m_data.end(), child->m_data); // Move data from child to parent
-                delete child; // Delete all children
-                child = nullptr; // Set to nullptr to avoid dangling pointers
-            }
-            node->m_isLeaf = true;
-            ++rewCount;
-        }
-        return rewCount;
-    }
 
     template<typename T>
     void _applyInsert(_Node<T> *node, size_t _inserted = 1)
@@ -248,23 +173,46 @@ namespace _qt
                 }
                 node->m_data.splice(node->m_data.end(), existing->m_data, itr);
                 if(node->m_count > countLimit)
-                    _divideNode(node);
+                    node->divideNode();
                 return;
             }
             --(node->m_count);
         }
         existing->m_data.erase(itr);
     }
+    template<typename T>
+    struct _MergeByRect
+    {
+        size_t countLimit;
+        const Rect &rect;
+        void operator()(_Node<T> *node)
+        {
+            if(!node || node->isLeaf() || !node->intersects(rect))
+                return;
+            for(_Node<T> *child : node->children())
+                (*this)(child);
+            if(node->m_count <= countLimit)
+            {
+                for(_Node<T> *&child : node->m_children)
+                {
+                    node->m_data.splice(node->m_data.end(), child->m_data); // Move data from child to parent
+                    delete child; // Delete all children
+                    child = nullptr;
+                }
+                node->m_isLeaf = true;
+            }
+        }
+    };
     template<typename T, typename LeafQuery>
     struct _QueryLeafByRect
     {
         LeafQuery lq;
         size_t countLimit;
         const Rect &rect;
-        size_t _leaf(_Node<T> *node)
+        void _leaf(_Node<T> *node)
         {
-            printf("ENTERED LEAF DURING QUERY\n");
-            _printDebug(stdout, node);
+            if(!node->intersects(rect))
+                return;
             size_t before = node->m_count;
             lq(node->m_data);
             size_t after = (node->m_count = node->m_data.size());
@@ -280,22 +228,15 @@ namespace _qt
                 if(!node->contains(tail->pos))
                     _reinsertNode(node, tail, countLimit);
             }
-            return _mergeNode(node, countLimit);
         }
-        size_t operator()(_Node<T> *node)
+        void operator()(_Node<T> *node)
         {
-            if(node && node->intersects(rect))
-            {
-                if(node->isLeaf())
-                    return _leaf(node);
-                for(size_t i = 0; i < 4; ++i)
-                {
-                    size_t rewCount = (*this)(node->children()[i]);
-                    if(rewCount)
-                        return rewCount - 1;
-                }
-            }
-            return 0;
+            if(!node || !node->intersects(rect))
+                return;
+            else if(node->isLeaf())
+                _leaf(node);
+            else for(_Node<T> *child : node->children())
+                (*this)(child);
         }
     };
 }
@@ -305,6 +246,7 @@ class QuadTree
 {
 public:
     typedef _qt::_QTData<T> LocatedData;
+    typedef std::list<_qt::_QTData<T>> DataList;
 private:
     typedef _qt::_Node<T> NodeType;
     NodeType m_root;
@@ -316,8 +258,14 @@ public:
     template<typename LeafQuery>
     void queryRect(const Rect &searchArea, LeafQuery &&func)
     {
-        _qt::_QueryLeafByRect<T, std::add_rvalue_reference_t<LeafQuery> > _temp = {std::forward<LeafQuery>(func), m_countLimit, searchArea};
-        _temp(&m_root);
+        {
+            _qt::_QueryLeafByRect<T, std::add_rvalue_reference_t<LeafQuery> > _temp = {std::forward<LeafQuery>(func), m_countLimit, searchArea};
+            _temp(&m_root);
+        }
+        {
+            _qt::_MergeByRect<T> _temp = {m_countLimit, searchArea};
+            _temp(&m_root);
+        }
     }
 
     void insert(const PointVector &pos, const T &data)
@@ -325,7 +273,7 @@ public:
         NodeType *node = _queryLeafByPoint(&m_root, pos);
         node->m_data.push_back(LocatedData{pos, data}); // Insert data into the leaf node
         if(++(node->m_count) > m_countLimit)
-            _qt::_divideNode(node);
+            node->divideNode();
         _qt::_applyInsert(node); // Apply insert logic
     }
     void insert(const PointVector &pos, T &&data)
@@ -333,7 +281,7 @@ public:
         NodeType *node = _queryLeafByPoint(&m_root, pos);
         node->m_data.push_back(LocatedData{pos, std::move(data)}); // Insert data into the leaf node
         if(++(node->m_count) > m_countLimit)
-            _qt::_divideNode(node);
+            node->divideNode();
         _qt::_applyInsert(node); // Apply insert logic
     }
     void clear(void)
