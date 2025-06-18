@@ -71,8 +71,14 @@ struct PointVector
         return *this;
     }
 
-    double length() const
+    inline double length() const
     {return sqrt((*this) * (*this));}
+
+    inline PointVector normalized() const
+    {return (*this) / length();}
+
+    inline PointVector &normalize()
+    {return (*this) /= length();}
 };
 
 struct Matrix2x2

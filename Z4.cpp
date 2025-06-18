@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <stdarg.h>
+#include <stdint.h>
 #include "Geo.hpp"
 #include "SteadyTimer.hpp"
 #include "Tree.hpp"
@@ -25,161 +26,161 @@ void debugErrPrintln(const char *format, ...)
     fputc('\n', stderr);
     va_end(args);
 }
-struct WeaponPreset;
-struct BulletPreset;
-struct Bullet;
-struct Team;
-struct Entity;
-struct Zombie;
-struct Player;
-
-struct BulletPreset
-{
-    int damage;
-    int penetration; // How many objects the bullet can penetrate
-    double speed; // Speed of the bullet in units per second
-    double range; // Maximum range of the bullet
-};
-typedef QuadTree<std::shared_ptr<Entity>> EntityField;
-typedef EntityField::DataList::
-struct Bullet
-{
-    EntityPtr owner; // Owner of the bullet, can be a player or an NPC
-    const PointVector initialPosition;
-    PointVector position;
-    PointVector velocity; // Velocity of the bullet in x and y directions
-    double radius;
-    double lifeTime;
-
-    static constexpr double __min1(double a, double b)
-    {return (a < b) ? a : b;}
-
-    static constexpr double __max1(double a, double b)
-    {return (a > b) ? a : b;}
-public:
-    struct HitInfo
-    {
-        EntityField::DataList::iterator target;
-        double closest; // [0.0, 1.0]
-    };
-    Bullet(EntityPtr _owner, const BulletPreset &_bulletPreset, const PointVector &_initialPosition, double _angle)
-        : owner(_owner), initialPosition{_initialPosition}, position(_initialPosition), velocity(), lifeTime(lifeTime) {}
-    virtual void onHit(EntityField &entityList, const EntityList &hitList) = 0;
-    static double distancePointToSegment(const PointVector& p, const PointVector& a, const PointVector& b, double& tOut)
-    {
-        PointVector ab = b - a;
-        PointVector ap = p - a;
-        double abLenSq = ab * ab;
-        if (abLenSq == 0.0) {
-            tOut = 0.0;
-            return (p - a).length();
-        }
-        double t = (ap * ab) / abLenSq;
-        if(t < 0.0)
-            t = 0.0;
-        else if(t > 1.0)
-            t = 1.0;
-        tOut = t;
-        PointVector closest = a + ab * t;
-        return (p - closest).length();
-    }
-    static constexpr Rect computeBoundingRectWithRadius(const PointVector &start, const PointVector &end, double radius)
-    {
-        return {
-            { __min1(start[0], end[0]) - radius, __min1(start[1], end[1]) - radius }, 
-            { __max1(start[0], end[0]) + radius, __max1(start[1], end[1]) + radius }
-        };
-    }
-    std::list<HitInfo> getHitEntities(EntityField &entityField, double duration)
-    {
-        PointVector start = position;
-        PointVector end = start + velocity * duration;
-
-        Rect boundingBox = computeBoundingRectWithRadius(start, end, radius);
-
-        std::list<EntityIterator> candidates;
-        entityList.queryRect(boundingBox, candidates); // 후보만 추출 (빠름)
-
-        std::list<HitInfo> hits;
-        for (EntityIterator entity : candidates) {
-            double tClosest;
-            double dist = distancePointToSegment((**entity).position, start, end, tClosest);
-
-            if (dist <= radius + (**entity).radius) {
-                hits.push_back({ entity, tClosest });
-            }
-        }
-        hits.sort([](auto& a, auto& b) {return a.tClosest < b.tClosest;});
-        return std::move(hits);
-    }
-public:
-    virtual ~Bullet()
-    {}
-};
-
-struct WeaponPreset
-{
-    const char *name;
-    int damage;
-    double weight;
-    double recoil;
-    int burstCount = 1; // Default burst count for single-shot weapons (if 0, it is automatic)
-    int burstDelayms = 0; // Default burst delay for single-shot weapons (if burstCount is 0, this is ignored)
-    int delayms = 10;
-    int ammoCapacity = 30; // Default ammo capacity for weapons
-    int reloadTimems = 2000; // Default reload time in milliseconds
-};
-
 struct Team
 {
     const char *name; // Name of the team
 };
-struct Entity
+class Entity
 {
-    Team *team; // Pointer to the team this entity belongs to, if any
-    const char *name; // Name of the entity
-    double radius;
-    PointVector position; // Position of the entity in 2D space
-    double angle;
-    int health; // Health of the entity
-
-    virtual void onHit(Entity &entity)
-    {}
-
-    virtual ~Entity() = default; // Virtual destructor for proper cleanup
+private:
+    const Team *m_team; // Pointer to the team this entity belongs to, if any
+    const char *m_name; // Name of the entity
+    int m_health; // Health of the entity
+    int m_healthMax;
+    double m_size;
+    PointVector m_pos;
+    bool m_valid;
+public:
+    Entity(const Team *team, const char *name, int healthMax, double size, const PointVector &pos)
+        : m_team(team), m_name(name), m_health(healthMax), m_healthMax(healthMax), m_size(size), m_pos(pos), m_valid(true){}
+    const Team *team(void) const
+    {return m_team;}
+    const char *name(void) const
+    {return m_name;}
+    const PointVector &position(void) const
+    {return m_pos;}
+    int health(void) const
+    {return m_health;}
+    int healthMax(void) const
+    {return m_healthMax;}
+    double size(void) const
+    {return m_size;}
+    bool valid(void) const
+    {return m_valid;}
+    void setPosition(const PointVector &pos)
+    {m_pos = pos;}
+    void setHealth(unsigned health)
+    {m_health = health ? ((health < m_healthMax) ? health : m_healthMax) : 0;}
+protected:
+    void destroy(void)
+    {m_valid = false;}
+public:
+    virtual void update(void) = 0; // You update Entity object yourself. (Ex: if hp is 0, set destroy and make the entity invalid)
+    virtual void healthEvent(EntityPtr, int deltaHealth)
+    {setHealth(health() + deltaHealth);}
+    virtual ~Entity(){} // Virtual destructor for proper cleanup
 };
-struct Zombie : public Entity
+typedef std::shared_ptr<Entity> EntityPtr;
+typedef QuadTree<EntityPtr> EntityField;
+class Bullet
 {
-    int damage; // Damage dealt by the zombie
-    double speed; // Speed of the zombie in units per second
-    double attackRange; // Range within which the zombie can attack
+private:
+    EntityField *m_field;
+    EntityPtr m_owner; // Owner of the bullet, can be a player or an NPC
+    double m_size;
+    PointVector m_pos;
+    bool m_valid;
+public:
+    Bullet(EntityField *field, EntityPtr owner, double size, const PointVector &pos)
+        : m_field(field), m_owner(std::move(owner)), m_size(size), m_pos(pos){}
+    EntityField *field() const
+    {return m_field;}
+    const EntityPtr &owner(void) const
+    {return m_owner;}
+    double size(void) const
+    {return m_size;}
+    const PointVector &pos(void) const
+    {return m_pos;}
+protected:
+    void destroy(void)
+    {m_valid = false;}
+public:
+    virtual void update(void) = 0;
+    virtual ~Bullet(){}
 };
-struct Player : public Entity
+typedef std::unique_ptr<Bullet> BulletPtr;
+Team human = {"human"};
+Team zombie = {"zombie"};
+std::list<BulletPtr> bullets;
+class Crystal : public Entity
 {
-    int score;
-    virtual void onHit(){}
+public:
+    Crystal()
+        : Entity(&human, "Crystal", 10000, 30, {0,0}){}
+    virtual void update(void) override{}
 };
-std::list<Bullet> bullets;
-std::list<Entity> entities;
-void updateBullets(double deltaTime)
+EntityPtr crystal = std::make_shared<Crystal>();
+class Player : public Entity
 {
-    for(auto it = bullets.begin(); it != bullets.end();)
+private:
+    int m_sockFd;
+public:
+    Player(const char *name)
+        : Entity(&human, name, 120, 8, {0,0}){}
+    virtual void update(void) override
     {
-        Bullet &bullet = *it;
-        bullet.lifeTime -= deltaTime;
-        if(bullet.lifeTime <= 0)
-        {
-            it = bullets.erase(it); // Remove bullet if its lifetime has expired
-            continue;
-        }
-        // Update bullet position based on its velocity
-        bullet.position += bullet.velocity * deltaTime;
 
-        // Check for collisions with entities or the world here (not implemented)
-        
-        ++it; // Move to the next bullet
     }
-}
+};
+struct ZombiePreset
+{
+    const char *name;
+    int healthMax;
+    double size;
+    int damage; // Damage dealt by the zombie
+    double attackCooldown;
+    double speed; // Speed of the zombie in units per second
+};
+class Zombie : public Entity
+{
+private:
+    int m_damage; // Damage dealt by the zombie
+    double m_attackCooldown;
+    double m_speed; // Speed of the zombie in units per second
+    double m_tick;
+    double m_lastAttackTime;
+    EntityPtr m_attackedBy;
+
+    void _moveTo(const PointVector &p)
+    {
+        double tick = timer();
+        double diff = tick - m_tick;
+
+
+
+        m_tick = tick;
+    }
+public:
+    Zombie(const Team *team, const ZombiePreset &zp, const PointVector &pos)
+        : Entity(team, zp.name,  zp.healthMax, zp.size, pos), m_damage(zp.damage), m_attackCooldown(zp.attackCooldown), m_speed(zp.speed), m_lastAttackTime(-1){}
+    virtual void update(void) override
+    {
+        if(m_attackedBy != nullptr)
+        {
+            if(!m_attackedBy->valid())
+                m_attackedBy = nullptr;
+            else
+            {
+                _moveTo(m_attackedBy->position());
+                return;
+            }
+        }
+        _moveTo(crystal->position());
+    }
+    virtual void healthEvent(EntityPtr entityPtr, int deltaHealth)
+    {
+        setHealth(health() + deltaHealth);
+        m_attackedBy = entityPtr;
+    }
+};
+class Item
+{
+    double size;
+    void interact(void)
+    {
+
+    }
+};
 void atexit1(void)
 {
     debugPrintln("Server ended");
