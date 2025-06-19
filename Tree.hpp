@@ -70,11 +70,8 @@ namespace _qt
 }
 
 template<typename T>
-class QuadTree
+class EntityTree
 {
-public:
-    typedef _qt::_QTData<T> LocatedData;
-    typedef std::list<_qt::_QTData<T>> DataList;
 private:
     typedef _qt::_Node<T> NodeType;
     NodeType m_root;

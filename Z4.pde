@@ -83,31 +83,81 @@ void setup() {
     socket.connect(new InetSocketAddress(hostName, portNum), timeOut);
     client = new Client(this, socket);
     println("Connection success to " + hostName);
+    readRecentData.start();
   } catch (Exception e) {
     println("Connection Failure: " + e.getMessage());
     exit();
   }
-  readRecentData.start();
 }
+JSONObject json;
 JSONObject myStat;
+JSONObject crystalEnt;
+JSONObject gameStat;
 JSONArray entities;
 JSONArray bullets;
 JSONArray dropItems;
 void draw() {
   background(0,200,0);
+  pushMatrix();
   if(!client.active())
   {
     textFont(largeFont);
     text("Connection failed. Reconnecting to the server.", width*0.5, height*0.5);
   }
-  JSONObject json;
-  synchronized(receivedDataLock) {
-    json = parseJSONObject(receivedData);
+  else
+  {
+    synchronized(receivedDataLock) {
+      json = parseJSONObject(receivedData);
+    }
+    if(json != null)
+    {
+      myStat = json.getJSONObject("myStat");
+      crystalEnt = json.getJSONObject("crystalStat");
+      gameStat = json.getJSONObject("gameStat");
+      entities = json.getJSONArray("entities");
+      bullets = json.getJSONArray("bullets");
+      dropItems = json.getJSONArray("dropItems");
+    }
   }
-  if(json == null)
-    return;
-  myStat = json.getJSONObject("myStat");
-  entities = json.getJSONArray("entities");
-  bullets = json.getJSONArray("bullets");
-  dropItems = json.getJSONArray("dropItems");
+  int zombRemain = gameStat.getInt("zombRemain");
+  
+  int ammo = myStat.getInt("ammo");
+  int ammoMax = myStat.getInt("ammoMax");
+  float reloadingTime = myStat.getFloat("reloadingTime");
+  float reloadingRemain = myStat.getFloat("reloadingRemain");
+  JSONObject myEnt = myStat.getJSONObject("ent");
+  
+  float myx = myEnt.getInt("x");
+  float myy = myEnt.getInt("y");
+  int myHP = myEnt.getInt("hp");
+  int myHPMax = myEnt.getInt("hpMax");
+  
+  int crystalHP = crystalEnt.getInt("hp");
+  int crystalHPMax = crystalEnt.getInt("hpMax");
+  
+  translate(width/2, height/2);
+  for(int i = 0; i < entities.size(); ++i)
+  {
+    JSONObject entity = entities.getJSONObject(i);
+    int team = entity.getInt("team");
+    float x = entity.getFloat("x");
+    float y = entity.getFloat("y");
+    float size = entity.getFloat("size");
+    int hp = myStat.getInt("hp");
+    int hpMax = myStat.getInt("hpMax");
+    
+    if(team == 1)
+      fill(17, 74, 7);
+    else
+      fill(255,255,255);
+    ellipse(x - myx, y - myy, size, size);
+    fill(0);
+    rect(x - myx - size * 0.75, y - myy - size * 0.7, size * 1.5, size * 0.2);
+    if(team == 1)
+      fill(255, 0, 0);
+    else
+      fill(0,255,0);
+    rect(x - myx - size * 0.75, y - myy - size * 0.7, size * 1.5 * (hp / hpMax), size * 0.2);
+  }
+  popMatrix();
 }
